@@ -5,8 +5,8 @@ set -e
 
 # Ensure the script is run as root
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root (use sudo)."
-   exit 1
+  echo "This script must be run as root (use sudo)."
+  exit 1
 fi
 
 # 1. Capture User Variables
@@ -14,6 +14,7 @@ echo "--- Samba Share Configuration ---"
 read -p "Enter Share Name (e.g., MyShare): " SHARE_NAME
 read -p "Enter Share Group (e.g., sambagroup): " SHARE_GROUP
 read -p "Enter Storage Path (e.g., /srv/samba/data): " SHARE_PATH
+read -p "Enter Username to add to this share: " TARGET_USER
 
 # 2. Update and Install Samba
 echo "Updating repositories and installing Samba..."
@@ -22,8 +23,8 @@ apt-get install -y samba > /dev/null
 
 # 3. Create Group and Directory
 if ! getent group "$SHARE_GROUP" > /dev/null; then
-    echo "Creating group: $SHARE_GROUP"
-    groupadd "$SHARE_GROUP"
+  echo "Creating group: $SHARE_GROUP"
+  groupadd "$SHARE_GROUP"
 fi
 
 echo "Setting up directory: $SHARE_PATH"
@@ -32,44 +33,51 @@ chgrp "$SHARE_GROUP" "$SHARE_PATH"
 # 2770: Sticky bit on group (2), Owner/Group Full (7), Others None (0)
 chmod 2770 "$SHARE_PATH"
 
-# 4. Update Samba Configuration
+# 4. User Configuration
+# Check if user exists, if not, create them
+if ! id "$TARGET_USER" &>/dev/null; then
+    echo "User $TARGET_USER does not exist. Creating system user..."
+    useradd -m -s /bin/bash "$TARGET_USER"
+fi
+
+echo "Adding $TARGET_USER to group $SHARE_GROUP..."
+usermod -aG "$SHARE_GROUP" "$TARGET_USER"
+
+echo "Setting Samba password for $TARGET_USER..."
+smbpasswd -a "$TARGET_USER"
+
+# 5. Update Samba Configuration
 if grep -q "\[$SHARE_NAME\]" /etc/samba/smb.conf; then
-    echo "Warning: Share [$SHARE_NAME] already exists in /etc/samba/smb.conf. Skipping config append."
+  echo "Warning: Share [$SHARE_NAME] already exists in /etc/samba/smb.conf. Skipping config append."
 else
-    echo "Appending $SHARE_NAME to /etc/samba/smb.conf..."
-    cat <<EOF >> /etc/samba/smb.conf
+  echo "Appending $SHARE_NAME to /etc/samba/smb.conf..."
+  cat <<EOF >> /etc/samba/smb.conf
 
 [$SHARE_NAME]
-    comment = Restricted Group Share
-    path = $SHARE_PATH
-    browsable = yes
-    read only = no
-    guest ok = no
-    valid users = @$SHARE_GROUP
-    force group = $SHARE_GROUP
-    create mask = 0660
-    directory mask = 0770
+   comment = Restricted Group Share
+   path = $SHARE_PATH
+   browsable = yes
+   read only = no
+   guest ok = no
+   valid users = @$SHARE_GROUP
+   force group = $SHARE_GROUP
+   create mask = 0660
+   directory mask = 0770
 EOF
 fi
 
-# 5. Finalize Services
+# 6. Finalize Services
 echo "Restarting Samba services..."
 systemctl restart smbd nmbd
 
-# 6. Firewall Configuration
+# 7. Firewall Configuration
 if command -v ufw > /dev/null && ufw status | grep -q "Status: active"; then
-    echo "Adjusting UFW firewall rules..."
-    ufw allow 'Samba'
+  echo "Adjusting UFW firewall rules..."
+  ufw allow 'Samba'
 fi
 
-# 7. Summary
+# 8. Summary
 echo "-------------------------------------------------------"
 echo " SUCCESS: $SHARE_NAME has been set up at $SHARE_PATH"
-echo "-------------------------------------------------------"
-echo "Next Steps:"
-echo " 1. Add a Linux user to the group:"
-echo "    sudo usermod -aG $SHARE_GROUP <username>"
-echo ""
-echo " 2. Set the Samba password for that user:"
-echo "    sudo smbpasswd -a <username>"
+echo " User $TARGET_USER has been added to $SHARE_GROUP"
 echo "-------------------------------------------------------"
