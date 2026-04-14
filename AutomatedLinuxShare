@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Ensure the script is run as root
+if [[ $EUID -ne 0 ]]; then
+   echo "This script must be run as root (use sudo)."
+   exit 1
+fi
+
+# 1. Collect User Input
+read -p "Enter the name of the share (e.g., myshare): " SHARE_NAME
+read -p "Enter the name of the user group (e.g., sharegroup): " GROUP_NAME
+read -p "Enter the username to create/add (e.g., bktaylor): " SHARE_USER
+
+# 2. Install Samba
+echo "Updating repositories and installing Samba..."
+apt update && apt install -y samba
+
+# 3. Create Group and User
+echo "Setting up groups and users..."
+groupadd "$GROUP_NAME"
+
+# Check if user exists; if not, create them
+if id "$SHARE_USER" &>/dev/null; then
+    usermod -aG "$GROUP_NAME" "$SHARE_USER"
+    echo "User $SHARE_USER added to $GROUP_NAME."
+else
+    useradd -m -G "$GROUP_NAME" -s /bin/bash "$SHARE_USER"
+    echo "User $SHARE_USER created and added to $GROUP_NAME."
+fi
+
+# Set Samba password
+echo "Set the Samba password for $SHARE_USER:"
+smbpasswd -a "$SHARE_USER"
+
+# 4. Create the Share Directory
+SHARE_PATH="/srv/samba/$SHARE_NAME"
+mkdir -p "$SHARE_PATH"
+chown :"$GROUP_NAME" "$SHARE_PATH"
+chmod 775 "$SHARE_PATH"
+
+# 5. Configure Samba
+SMB_CONF="/etc/samba/smb.conf"
+
+echo "Backing up existing Samba config..."
+cp "$SMB_CONF" "$SMB_CONF.bak"
+
+echo "Adding share configuration..."
+cat <<EOT >> "$SMB_CONF"
+
+[$SHARE_NAME]
+   path = $SHARE_PATH
+   browseable = yes
+   read only = no
+   guest ok = no
+   valid users = @$GROUP_NAME
+   create mask = 0664
+   directory mask = 0775
+   force group = $GROUP_NAME
+EOT
+
+# 6. Restart Services
+systemctl restart smbd nmbd
+
+echo "--------------------------------------------------"
+echo "Setup Complete!"
+echo "Share Name: $SHARE_NAME"
+echo "Path:       $SHARE_PATH"
+echo "Group:      $GROUP_NAME"
+echo "User:       $SHARE_USER"
+echo "Access via: \\\\$(hostname -I | awk '{print $1}')\\$SHARE_NAME"
