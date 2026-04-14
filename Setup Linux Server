@@ -29,9 +29,17 @@ fi
 
 echo "Setting up directory: $SHARE_PATH"
 mkdir -p "$SHARE_PATH"
-chgrp "$SHARE_GROUP" "$SHARE_PATH"
-# 2770: Sticky bit on group (2), Owner/Group Full (7), Others None (0)
-chmod 2770 "$SHARE_PATH"
+
+# Ensure parent directories are "traversable" (fixes 'can't open folder' issues)
+# This grants execute permission to others on the path so Samba can reach the folder
+PARENT_DIR=$(dirname "$SHARE_PATH")
+chmod o+x /srv 2>/dev/null || true
+chmod o+x "$PARENT_DIR" 2>/dev/null || true
+
+# Set ownership and permissions
+# 2775: Sticky bit (2) so new files inherit the group, Group Write (7), Others Read/Execute (5)
+chown -R root:"$SHARE_GROUP" "$SHARE_PATH"
+chmod -R 2775 "$SHARE_PATH"
 
 # 4. User Configuration
 # Check if user exists, if not, create them
@@ -43,7 +51,9 @@ fi
 echo "Adding $TARGET_USER to group $SHARE_GROUP..."
 usermod -aG "$SHARE_GROUP" "$TARGET_USER"
 
-echo "Setting Samba password for $TARGET_USER..."
+echo "-------------------------------------------------------"
+echo "SETTING SAMBA PASSWORD FOR: $TARGET_USER"
+echo "-------------------------------------------------------"
 smbpasswd -a "$TARGET_USER"
 
 # 5. Update Samba Configuration
@@ -61,8 +71,8 @@ else
    guest ok = no
    valid users = @$SHARE_GROUP
    force group = $SHARE_GROUP
-   create mask = 0660
-   directory mask = 0770
+   create mask = 0664
+   directory mask = 2775
 EOF
 fi
 
@@ -80,4 +90,5 @@ fi
 echo "-------------------------------------------------------"
 echo " SUCCESS: $SHARE_NAME has been set up at $SHARE_PATH"
 echo " User $TARGET_USER has been added to $SHARE_GROUP"
+echo " Access this share via: \\\\$(hostname -I | awk '{print $1}')\\$SHARE_NAME"
 echo "-------------------------------------------------------"
