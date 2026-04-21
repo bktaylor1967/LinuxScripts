@@ -2,6 +2,7 @@
 
 # --- User Inputs ---
 read -p "Enter the VM ID to use (e.g., 9000): " VM_ID
+read -p "Enter the name for this template: " TEMPLATE_NAME
 read -p "Enter the storage name (e.g., local-lvm): " STORAGE
 read -p "Enter the disk size (e.g., 10G, 20G): " DISK_SIZE
 
@@ -17,7 +18,8 @@ echo "--- Resizing Image to $DISK_SIZE ---"
 qemu-img resize $IMAGE_NAME $DISK_SIZE
 
 echo "--- Creating VM Shell ---"
-qm create $VM_ID --name "debian-12-template" --memory 2048 --net0 virtio,bridge=vmbr0
+# Changed hardcoded name to the $TEMPLATE_NAME variable
+qm create $VM_ID --name "$TEMPLATE_NAME" --memory 2048 --net0 virtio,bridge=vmbr0
 
 echo "--- Importing Disk to $STORAGE ---"
 qm importdisk $VM_ID $IMAGE_NAME $STORAGE
@@ -35,4 +37,4 @@ qm set $VM_ID --agent enabled=1
 echo "--- Converting to Template ---"
 qm template $VM_ID
 
-echo "--- Success! Debian 12 VM $VM_ID is now a template on $STORAGE ---"
+echo "--- Success! Template '$TEMPLATE_NAME' (ID: $VM_ID) is ready on $STORAGE ---"
