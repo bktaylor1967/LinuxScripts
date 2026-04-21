@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# --- User Inputs ---
+read -p "Enter the VM ID to use (e.g., 9000): " VM_ID
+read -p "Enter the storage name (e.g., local-lvm): " STORAGE
+read -p "Enter the disk size (e.g., 10G, 32G): " DISK_SIZE
+
+# --- Configuration ---
+# Debian 13 "Trixie" testing cloud image
+IMAGE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-generic-amd64-daily.qcow2"
+IMAGE_NAME="debian-13-trixie.qcow2"
+
+echo "--- Downloading Debian 13 Cloud Image ---"
+wget -N $IMAGE_URL -O $IMAGE_NAME
+
+echo "--- Resizing Image to $DISK_SIZE ---"
+qemu-img resize $IMAGE_NAME $DISK_SIZE
+
+echo "--- Creating VM Shell ---"
+# Note: Memory set to 2GB, change if needed
+qm create $VM_ID --name "debian-13-template" --memory 2048 --net0 virtio,bridge=vmbr0
+
+echo "--- Importing Disk to $STORAGE ---"
+qm importdisk $VM_ID $IMAGE_NAME $STORAGE
+
+echo "--- Configuring VM Settings ---"
+# Attach disk as SCSI, add Cloud-Init, and set boot order
+qm set $VM_ID --scsihw virtio-scsi-pci --scsi0 $STORAGE:vm-$VM_ID-disk-0
+qm set $VM_ID --ide2 $STORAGE:cloudinit
+qm set $VM_ID --boot c --bootdisk scsi0
+
+# Crucial for Proxmox console access:
+qm set $VM_ID --serial0 socket --vga serial0
+qm set $VM_ID --agent enabled=1
+
+echo "--- Converting to Template ---"
+qm template $VM_ID
+
+echo "--- Success! Debian 13 VM $VM_ID is now a template on $STORAGE ---"
