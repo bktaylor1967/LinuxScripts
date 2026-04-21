@@ -27,32 +27,33 @@ read -s -p "Enter Password for Root and $USERNAME: " PASSWORD
 echo -e "\n"
 
 # --- Template Acquisition Section ---
+# We bypass pveam and go straight to the LXC mirrors
 
-# 1. Determine the latest build date from the LXC mirrors
-echo "🔍 Finding the latest Kali build..."
+echo "🔍 Finding the latest Kali build from images.linuxcontainers.org..."
 BASE_URL="https://images.linuxcontainers.org/images/kali/current/amd64/default/"
+# This scrapes the directory listing for the most recent date folder
 LATEST_DATE=$(curl -s $BASE_URL | grep -oE '[0-9]{8}_[0-9]{2}:[0-9]{2}' | tail -n 1)
 
 if [ -z "$LATEST_DATE" ]; then
-    echo "❌ Error: Could not find the latest build date. Please check your internet connection."
+    echo "❌ Error: Could not reach the download mirror. Check internet/DNS."
     exit 1
 fi
 
 DOWNLOAD_URL="${BASE_URL}${LATEST_DATE}/rootfs.tar.xz"
-TEMPLATE_PATH="/var/lib/vz/template/cache/kali-${LATEST_DATE}.tar.xz"
+TEMPLATE_DEST="/var/lib/vz/template/cache/kali-manual-${LATEST_DATE//[: ]/_}.tar.xz"
 
-# 2. Download the template if it doesn't already exist
-if [ ! -f "$TEMPLATE_PATH" ]; then
-    echo "📥 Downloading Kali template ($LATEST_DATE)..."
-    wget "$DOWNLOAD_URL" -O "$TEMPLATE_PATH"
+if [ ! -f "$TEMPLATE_DEST" ]; then
+    echo "📥 Downloading: $DOWNLOAD_URL"
+    wget "$DOWNLOAD_URL" -O "$TEMPLATE_DEST"
 else
-    echo "✅ Template already exists locally."
+    echo "✅ Template already exists at $TEMPLATE_DEST"
 fi
 
 # --- Container Creation Section ---
 
-echo "🚀 Creating container $CT_ID ($CT_NAME)..."
-pct create "$CT_ID" "$TEMPLATE_PATH" \
+echo "🚀 Creating container $CT_ID..."
+# Note: We use the local file path directly here
+pct create "$CT_ID" "$TEMPLATE_DEST" \
     --hostname "$CT_NAME" \
     --password "$PASSWORD" \
     --storage "$STORAGE" \
@@ -64,30 +65,17 @@ pct create "$CT_ID" "$TEMPLATE_PATH" \
     --unprivileged 1 \
     --start 1
 
-echo "⏳ Waiting for container to initialize..."
+echo "⏳ Waiting for boot..."
 sleep 15
 
 # --- Post-Install Configuration ---
 
-echo "👤 Configuring user: $USERNAME..."
-# Ensure sudo is installed first (LXC images are very bare-bones)
+echo "👤 Setting up user $USERNAME..."
 pct exec "$CT_ID" -- apt-get update
 pct exec "$CT_ID" -- apt-get install -y sudo
-
-# Create user and set password
 pct exec "$CT_ID" -- useradd -m -s /bin/bash -G sudo "$USERNAME"
 pct exec "$CT_ID" -- bash -c "echo '$USERNAME:$PASSWORD' | chpasswd"
 
-# Optional: Install basic Kali Headless tools
-read -p "Install Kali Headless tools? (y/n) [y]: " INSTALL_TOOLS
-INSTALL_TOOLS=${INSTALL_TOOLS:-y}
-
-if [[ "$INSTALL_TOOLS" =~ ^[Yy]$ ]]; then
-    echo "📦 Installing kali-linux-headless (this takes a while)..."
-    pct exec "$CT_ID" -- apt-get install -y kali-linux-headless
-fi
-
-echo -e "\n--- ✅ SETUP COMPLETE ---"
-echo "Container ID: $CT_ID"
-echo "Username: $USERNAME"
-echo "You can access the console via the Proxmox UI or: 'pct enter $CT_ID'"
+echo -e "\n--- ✅ DONE ---"
+echo "ID: $CT_ID | User: $USERNAME"
+echo "Login via Web Console or run: pct enter $CT_ID"
