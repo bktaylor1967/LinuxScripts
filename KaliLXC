@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# --- Interactive Input Section ---
+echo "--- Proxmox Kali LXC Configuration ---"
+
+# Suggest next available ID
+NEXT_ID=$(pvesh get /cluster/nextid)
+read -p "Enter Container ID [$NEXT_ID]: " CT_ID
+CT_ID=${CT_ID:-$NEXT_ID}
+
+read -p "Enter Container Name [Kali-LXC]: " CT_NAME
+CT_NAME=${CT_NAME:-Kali-LXC}
+
+read -p "Enter Disk Size in GB [20]: " DISK_SIZE
+DISK_SIZE=${DISK_SIZE:-20}
+
+read -p "Enter Storage Pool [local-lvm]: " STORAGE
+STORAGE=${STORAGE:-local-lvm}
+
+read -p "Enter Bridge Interface [vmbr0]: " BRIDGE
+BRIDGE=${BRIDGE:-vmbr0}
+
+read -p "Enter New Username [kaliuser]: " USERNAME
+USERNAME=${USERNAME:-kaliuser}
+
+read -s -p "Enter Password for Root and $USERNAME: " PASSWORD
+echo "" # New line after hidden password input
+
+# --- Execution Section ---
+
+echo "Updating Proxmox template database..."
+pveam update
+
+TEMPLATE=$(pveam available -section system | grep kali | awk '{print $2}' | head -n 1)
+
+if [ -z "$TEMPLATE" ]; then
+    echo "❌ Error: Kali template not found."
+    exit 1
+fi
+
+echo "Downloading $TEMPLATE..."
+pveam download local "$TEMPLATE"
+
+echo "Creating container $CT_ID ($CT_NAME)..."
+pct create "$CT_ID" "local:vztmpl/$TEMPLATE" \
+    --hostname "$CT_NAME" \
+    --password "$PASSWORD" \
+    --storage "$STORAGE" \
+    --rootfs "$STORAGE:$DISK_SIZE" \
+    --cores 2 \
+    --memory 2048 \
+    --net0 name=eth0,bridge="$BRIDGE",ip=dhcp \
+    --ostype kali \
+    --unprivileged 1 \
+    --start 1
+
+echo "Waiting for container to boot..."
+sleep 10
+
+# Create the additional user and add to sudoers
+echo "Configuring user: $USERNAME..."
+pct exec "$CT_ID" -- groupadd -f sudo
+pct exec "$CT_ID" -- useradd -m -s /bin/bash -G sudo "$USERNAME"
+pct exec "$CT_ID" -- bash -c "echo '$USERNAME:$PASSWORD' | chpasswd"
+
+# Optional: Install headless tools immediately
+echo "Installing headless tools (this may take a few minutes)..."
+pct exec "$CT_ID" -- apt-get update
+pct exec "$CT_ID" -- apt-get install -y kali-linux-headless sudo
+
+echo "--- ✅ Setup Finished ---"
+echo "You can now log in as '$USERNAME' or 'root' via the Proxmox console."
