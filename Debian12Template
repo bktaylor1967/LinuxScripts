@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# --- User Inputs ---
+read -p "Enter the VM ID to use (e.g., 9000): " VM_ID
+read -p "Enter the storage name (e.g., local-lvm): " STORAGE
+read -p "Enter the disk size (e.g., 10G, 20G): " DISK_SIZE
+
+# --- Configuration ---
+# Debian 12 "Bookworm" stable cloud image
+IMAGE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+IMAGE_NAME="debian-12-bookworm.qcow2"
+
+echo "--- Downloading Debian 12 Cloud Image ---"
+wget -N $IMAGE_URL -O $IMAGE_NAME
+
+echo "--- Resizing Image to $DISK_SIZE ---"
+qemu-img resize $IMAGE_NAME $DISK_SIZE
+
+echo "--- Creating VM Shell ---"
+qm create $VM_ID --name "debian-12-template" --memory 2048 --net0 virtio,bridge=vmbr0
+
+echo "--- Importing Disk to $STORAGE ---"
+qm importdisk $VM_ID $IMAGE_NAME $STORAGE
+
+echo "--- Configuring VM Settings ---"
+# Attach disk, add Cloud-Init, and set boot order
+qm set $VM_ID --scsihw virtio-scsi-pci --scsi0 $STORAGE:vm-$VM_ID-disk-0
+qm set $VM_ID --ide2 $STORAGE:cloudinit
+qm set $VM_ID --boot c --bootdisk scsi0
+
+# Serial console for Proxmox xterm.js access
+qm set $VM_ID --serial0 socket --vga serial0
+qm set $VM_ID --agent enabled=1
+
+echo "--- Converting to Template ---"
+qm template $VM_ID
+
+echo "--- Success! Debian 12 VM $VM_ID is now a template on $STORAGE ---"
