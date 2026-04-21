@@ -2,6 +2,7 @@
 
 # --- User Inputs ---
 read -p "Enter the VM ID to use (e.g., 9000): " VM_ID
+read -p "Enter the name for this template: " TEMPLATE_NAME
 read -p "Enter the storage name (e.g., local-lvm or ceph): " STORAGE
 read -p "Enter the disk size (e.g., 20G, 32G, 50G): " DISK_SIZE
 
@@ -17,7 +18,8 @@ echo "--- Resizing Image to $DISK_SIZE ---"
 qemu-img resize $IMAGE_NAME $DISK_SIZE
 
 echo "--- Creating VM Shell ---"
-qm create $VM_ID --name "ubuntu-24-04-template" --memory 2048 --net0 virtio,bridge=vmbr0
+# Updated to use the variable $TEMPLATE_NAME
+qm create $VM_ID --name "$TEMPLATE_NAME" --memory 2048 --net0 virtio,bridge=vmbr0
 
 echo "--- Importing Disk to $STORAGE ---"
 qm importdisk $VM_ID $IMAGE_NAME $STORAGE
@@ -33,4 +35,4 @@ qm set $VM_ID --agent enabled=1
 echo "--- Converting to Template ---"
 qm template $VM_ID
 
-echo "--- Success! VM $VM_ID is now a template on $STORAGE ---"
+echo "--- Success! Template '$TEMPLATE_NAME' (ID: $VM_ID) is now ready on $STORAGE ---"
