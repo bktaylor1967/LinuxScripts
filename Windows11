@@ -1,0 +1,48 @@
+#!/bin/bash
+# Windows 11 Pro VM Creator for Proxmox
+
+set -e
+
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+echo -e "${GREEN}--- Windows 11 Pro VM Creator for Proxmox ---${NC}"
+
+# User Inputs
+read -p "Enter VM ID (e.g., 100): " VM_ID
+read -p "Enter VM Name (e.g., Win11-Pro): " VM_NAME
+read -p "Enter RAM in MB (e.g., 4096): " VM_RAM
+read -p "Enter Disk Size in GB (e.g., 64): " DISK_SIZE
+read -p "Enter Bridge Network (usually vmbr0): " BRIDGE
+read -p "Enter Storage ID (usually local-lvm or local-zfs): " STORAGE
+
+# ISO Paths
+WIN_ISO="local:iso/Windows_11_25H2.iso"
+VIRTIO_ISO="local:iso/virtio-win.iso"
+
+echo -e "${GREEN}Creating VM $VM_ID...${NC}"
+
+# Create the VM
+qm create $VM_ID --name "$VM_NAME" --ostype win11 \
+  --memory $VM_RAM --balloon 0 \
+  --agent enabled=1 \
+  --bios ovmf --machine q35 \
+  --efidisk0 $STORAGE:1,format=raw,efitype=ms \
+  --cpu host,flags=+aes \
+  --cores 2 --sockets 1 \
+  --net0 virtio,bridge=$BRIDGE
+
+# Add TPM 2.0
+qm set $VM_ID --tpmstate0 $STORAGE:vmtpm,version=v2.0
+
+# Setup Storage
+qm set $VM_ID --scsihw virtio-scsi-pci --scsi0 $STORAGE:$DISK_SIZE,ssd=1
+
+# Mount ISOs
+qm set $VM_ID --ide0 $WIN_ISO,media=cdrom
+qm set $VM_ID --ide2 $VIRTIO_ISO,media=cdrom
+
+# Set Boot Order
+qm set $VM_ID --boot order='ide0;scsi0'
+
+echo -e "${GREEN}Success! VM $VM_ID has been created.${NC}"
