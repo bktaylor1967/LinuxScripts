@@ -27,13 +27,14 @@ echo "--- Configuring VM & Cloud-Init ---"
 qm set $VM_ID --scsihw virtio-scsi-pci --scsi0 $STORAGE:vm-$VM_ID-disk-0
 
 # 2. Add the Cloud-Init CD-ROM drive
+# This adds the drive you noticed was missing in the options
 qm set $VM_ID --ide2 $STORAGE:cloudinit
 
-# 3. Set boot order to the main disk
-qm set $VM_ID --boot c --bootdisk scsi0
+# 3. FIX FOR image_387c61.png: Set and enable the boot order
+# This ensures scsi0 is checked and active in the boot menu
+qm set $VM_ID --boot order=scsi0
 
-# 4. Configure Cloud-Init to use DHCP by default
-# This ensures the cloned VM actually gets an IP address.
+# 4. Configure Cloud-Init networking
 qm set $VM_ID --ipconfig0 ip=dhcp
 
 # 5. Optimization: Serial console and Guest Agent
