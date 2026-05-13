@@ -4,35 +4,43 @@
 read -p "Enter the VM ID to use (e.g., 9000): " VM_ID
 read -p "Enter the name for this template: " TEMPLATE_NAME
 read -p "Enter the storage name (e.g., local-lvm or ceph): " STORAGE
-read -p "Enter the disk size (e.g., 20G, 32G, 50G): " DISK_SIZE
+read -p "Enter the disk size (e.g., 20G): " DISK_SIZE
 
 # --- Configuration ---
 IMAGE_URL="https://cloud-images.ubuntu.com/minimal/releases/24.04/release/ubuntu-24.04-minimal-cloudimg-amd64.img"
 IMAGE_NAME="ubuntu-24.04-minimal.qcow2"
 
 echo "--- Downloading Ubuntu 24.04 Cloud Image ---"
-# -N only downloads if the file is newer than the local copy
 wget -N $IMAGE_URL -O $IMAGE_NAME
 
 echo "--- Resizing Image to $DISK_SIZE ---"
 qemu-img resize $IMAGE_NAME $DISK_SIZE
 
 echo "--- Creating VM Shell ---"
-# Updated to use the variable $TEMPLATE_NAME
 qm create $VM_ID --name "$TEMPLATE_NAME" --memory 2048 --net0 virtio,bridge=vmbr0
 
 echo "--- Importing Disk to $STORAGE ---"
 qm importdisk $VM_ID $IMAGE_NAME $STORAGE
 
-echo "--- Configuring VM Settings ---"
-# Attach the disk, set up Cloud-Init, and optimize for Proxmox
+echo "--- Configuring VM & Cloud-Init ---"
+# 1. Attach the main system disk
 qm set $VM_ID --scsihw virtio-scsi-pci --scsi0 $STORAGE:vm-$VM_ID-disk-0
+
+# 2. Add the Cloud-Init CD-ROM drive
 qm set $VM_ID --ide2 $STORAGE:cloudinit
+
+# 3. Set boot order to the main disk
 qm set $VM_ID --boot c --bootdisk scsi0
+
+# 4. Configure Cloud-Init to use DHCP by default
+# This ensures the cloned VM actually gets an IP address.
+qm set $VM_ID --ipconfig0 ip=dhcp
+
+# 5. Optimization: Serial console and Guest Agent
 qm set $VM_ID --serial0 socket --vga serial0
 qm set $VM_ID --agent enabled=1
 
 echo "--- Converting to Template ---"
 qm template $VM_ID
 
-echo "--- Success! Template '$TEMPLATE_NAME' (ID: $VM_ID) is now ready on $STORAGE ---"
+echo "--- Success! Template '$TEMPLATE_NAME' (ID: $VM_ID) is ready ---"
