@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Ensure the script is running with root/sudo privileges
+if [ "$EUID" -ne 0 ]; then
+  echo "❌ Error: Please run this script with sudo."
+  exit 1
+fi
+
+SHARED_GROUP="IsoShare"
+
+# Verify that the IsoShare group actually exists on the system
+if ! getent group "$SHARED_GROUP" > /dev/null; then
+  echo "❌ Error: The Linux group '$SHARED_GROUP' does not exist."
+  echo "Please create it first using: sudo groupadd $SHARED_GROUP"
+  exit 1
+fi
+
+echo "=================================================="
+echo "      Samba User Creation Script ($SHARED_GROUP)   "
+echo "=================================================="
+
+# 1. Prompt for Username
+read -p "Enter new username: " USERNAME
+
+# Clean up input and check if user already exists
+USERNAME=$(echo "$USERNAME" | tr -d '[:space:]')
+
+if [ -z "$USERNAME" ]; then
+  echo "❌ Error: Username cannot be blank."
+  exit 1
+fi
+
+if id "$USERNAME" &>/dev/null; then
+  echo "❌ Error: User '$USERNAME' already exists on this system."
+  exit 1
+fi
+
+# 2. Prompt for Password (masked input)
+unset PASSWORD
+prompt="Enter password for $USERNAME: "
+while IFS= read -p "$prompt" -r -s -n 1 char; do
+  if [[ $char == $'\0' ]]; then
+    break
+  fi
+  if [[ $char == $'\177' ]]; then
+    if [ ${#PASSWORD} -gt 0 ]; then
+      PASSWORD="${PASSWORD%?}"
+      echo -ne "\b \b"
+    fi
+  else
+    PASSWORD+="$char"
+    echo -n "*"
+  fi
+done
+echo ""
+
+if [ -z "$PASSWORD" ]; then
+  echo "❌ Error: Password cannot be blank."
+  exit 1
+fi
+
+echo -e "\n⏳ Processing account creation..."
+
+# 3. Create the Linux System User (no home directory, disabled login shell)
+useradd -M -s /bin/false "$USERNAME"
+
+# 4. Add the user to the IsoShare group
+usermod -aG "$SHARED_GROUP" "$USERNAME"
+
+# 5. Inject password into Linux system database
+echo "$USERNAME:$PASSWORD" | chpasswd
+
+# 6. Inject password into Samba database using smbpasswd via stdin
+(echo "$PASSWORD"; echo "$PASSWORD") | smbpasswd -s -a "$USERNAME"
+
+echo "=================================================="
+echo "   ✅ Success! Account provisioned successfully.   "
+echo "=================================================="
+echo "  • System User:  $USERNAME"
+echo "  • Samba Access: Enabled"
+echo "  • Group:        $SHARED_GROUP"
+echo "=================================================="
